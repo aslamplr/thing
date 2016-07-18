@@ -3,9 +3,10 @@ An IoT experiment with ESP8266(nodemcuv2) PlatformIO
 
 ## How to setup
 #### Hardware
-*NodeMCU v1.0 development board
+* NodeMCU v1.0 development board
+
 #### Software
-*PlatformIO
+* PlatformIO
 
 Will write down the rest of the steps shortly,.
 

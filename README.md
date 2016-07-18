@@ -1,4 +1,4 @@
-# Thing Io(Thing)
+# Thing Io(Thing) ![travis-ci](https://travis-ci.org/aslamplr/thing.svg?branch=master)
 An IoT experiment with ESP8266(nodemcuv2) PlatformIO
 
 ## How to setup

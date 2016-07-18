@@ -3,10 +3,6 @@
 #include <ESP8266WiFi.h>
 #include <PubSubClient.h>
 
-extern "C" {
-  #include "user_interface.h"
-}
-
 #define LED_PIN 5
 
 const char* ssid = "OnePlus2";

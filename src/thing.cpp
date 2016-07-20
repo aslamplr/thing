@@ -5,11 +5,11 @@
 
 #define LED_PIN 5
 
-const char* ssid = "OnePlus2";
-const char* password = "global@123";
-const char* mqtt_server = "192.168.43.162";
-const char* inbound_topic = "esp8266/control/led";
-const char* outbound_topic = "esp8266/status/led";
+const char *ssid = "OnePlus2";
+const char *password = "global@123";
+const char *mqtt_server = "192.168.43.162";
+const char *inbound_topic = "esp8266/control/led";
+const char *outbound_topic = "esp8266/status/led";
 
 WiFiClient espClient;
 PubSubClient client(espClient);
@@ -19,7 +19,7 @@ char msg[50];
 bool ledstate = false;
 
 void setup_wifi(void);
-void callback(char* topic, byte* payload, unsigned int length);
+void callback(char *topic, byte *payload, unsigned int length);
 void reconnect(void);
 
 void setup(void);
@@ -46,7 +46,7 @@ void setup_wifi() {
   Serial.println(WiFi.localIP());
 }
 
-void callback(char* topic, byte* payload, unsigned int length) {
+void callback(char *topic, byte *payload, unsigned int length) {
   Serial.print("Message arrived [");
   Serial.print(topic);
   Serial.print("] ");

@@ -3,20 +3,25 @@
 #include <ESP8266WiFi.h>
 #include <PubSubClient.h>
 
-#define LED_PIN 5
+#include "debug.h"
+
+#define LED_PIN 2
+#define SW_PIN 0
 
 const char *ssid = "OnePlus2";
 const char *password = "global@123";
 const char *mqtt_server = "192.168.43.162";
-const char *inbound_topic = "esp8266/control/led";
-const char *outbound_topic = "esp8266/status/led";
+const char *control_topic = "esp8266/control/led";
+const char *status_topic = "esp8266/status/led";
+const char *override_topic = "esp8266/override/led";
 
 WiFiClient espClient;
 PubSubClient client(espClient);
 
 long lastMsg = 0;
 char msg[50];
-bool ledstate = false;
+volatile bool ledstate = true; //Active low relay switch
+volatile bool interrupted = false;
 
 void setup_wifi(void);
 void callback(char *topic, byte *payload, unsigned int length);
@@ -27,70 +32,91 @@ void loop(void);
 
 void setup_wifi() {
   delay(10);
-  Serial.println();
-  Serial.print("Connecting to ");
-  Serial.println(ssid);
+  Serial_println();
+  Serial_print("Connecting to ");
+  Serial_println(ssid);
 
   WiFi.mode(WIFI_STA);
   WiFi.begin(ssid, password);
   delay(10);
 
   while (WiFi.waitForConnectResult() != WL_CONNECTED) {
-    Serial.println("Connection failed! rebooting...");
+    Serial_println("Connection failed! rebooting...");
     delay(5000);
     ESP.restart();
   }
 
-  Serial.println("WiFi connected");
-  Serial.println("IP address: ");
-  Serial.println(WiFi.localIP());
+  Serial_println("WiFi connected");
+  Serial_println("IP address: ");
+  Serial_println(WiFi.localIP());
 }
 
 void callback(char *topic, byte *payload, unsigned int length) {
-  Serial.print("Message arrived [");
-  Serial.print(topic);
-  Serial.print("] ");
+  Serial_print("Message arrived [");
+  Serial_print(topic);
+  Serial_print("] ");
   for (int i = 0; i < length; i++) {
-    Serial.print((char)payload[i]);
+    Serial_print((char)payload[i]);
   }
-  Serial.println();
+  Serial_println();
 
-  if(strcmp(inbound_topic,topic)==0){
+  if(strcmp(control_topic,topic)==0){
     if ((char)payload[0] == '1') {
-      ledstate = true;
-      digitalWrite(LED_PIN, HIGH);
-    } else {
       ledstate = false;
       digitalWrite(LED_PIN, LOW);
+    } else {
+      ledstate = true;
+      digitalWrite(LED_PIN, HIGH);
     }
   }
 }
 
 void reconnect() {
   while (!client.connected()) {
-    Serial.print("Attempting MQTT connection...");
+    Serial_print("Attempting MQTT connection...");
     if (client.connect("ESP8266Client")) {
-      Serial.println("connected");
-      client.publish(outbound_topic, "system ready");
-      client.subscribe(inbound_topic);
+      Serial_println("connected");
+      client.publish(status_topic, "system ready");
+      client.subscribe(control_topic);
     } else {
-      Serial.print("failed, rc=");
-      Serial.print(client.state());
-      Serial.println(" try again in 5 seconds");
+      Serial_print("failed, rc=");
+      Serial_print(client.state());
+      Serial_println(" try again in 5 seconds");
       delay(5000);
     }
   }
+}
+
+//Interrupt function
+void handle_toggle_switch_interrupt(){
+  ledstate = !ledstate;
+  interrupted = true;
+}
+
+void handle_switching(){
+    if(interrupted){
+      digitalWrite(LED_PIN, ledstate);
+      snprintf (msg, 75, "%ld", ledstate ? 0 : 1);
+      Serial_print("Publish override message: ledstate ");
+      Serial_println(msg);
+      client.publish(override_topic, msg);
+      interrupted = false;
+    }
 }
 
 void setup() {
   Serial.begin(115200);
   setup_wifi();
   pinMode(LED_PIN, OUTPUT);
+  pinMode(SW_PIN, INPUT_PULLUP);
+  attachInterrupt(digitalPinToInterrupt(SW_PIN), handle_toggle_switch_interrupt, FALLING);
   client.setServer(mqtt_server, 1883);
   client.setCallback(callback);
 }
 
 void loop() {
+  handle_switching();
+
   if (!client.connected()) {
     reconnect();
   }
@@ -101,10 +127,10 @@ void loop() {
 
   if (now - lastMsg > 5000) {
     lastMsg = now;
-    snprintf (msg, 75, "%ld", ledstate ? 1:0);
-    Serial.print("Publish message: ledstate ");
-    Serial.println(msg);
-    client.publish(outbound_topic, msg);
+    snprintf (msg, 75, "%ld", ledstate ? 0 : 1);
+    Serial_print("Publish status message: ledstate ");
+    Serial_println(msg);
+    client.publish(status_topic, msg);
   }
-  delay(1000);
+  delay(90);
 }

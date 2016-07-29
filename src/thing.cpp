@@ -26,6 +26,8 @@ volatile bool interrupted = false;
 void setup_wifi(void);
 void callback(char *topic, byte *payload, unsigned int length);
 void reconnect(void);
+void handle_switching(void);
+void handle_toggle_switch_interrupt(void);
 
 void setup(void);
 void loop(void);
@@ -79,28 +81,34 @@ void reconnect() {
       client.publish(status_topic, "system ready");
       client.subscribe(control_topic);
     } else {
+      handle_switching();
       Serial_print("failed, rc=");
       Serial_print(client.state());
       Serial_println(" try again in 5 seconds");
-      delay(5000);
+      for(int msec=0; msec < 5000; msec+= 500){
+        delay(500);
+        handle_switching();
+      }
     }
   }
 }
 
 //Interrupt function
-void handle_toggle_switch_interrupt(){
+void handle_toggle_switch_interrupt(void){
   ledstate = !ledstate;
   interrupted = true;
 }
 
-void handle_switching(){
+void handle_switching(void){
     if(interrupted){
       digitalWrite(LED_PIN, ledstate);
-      snprintf (msg, 75, "%ld", ledstate ? 0 : 1);
-      Serial_print("Publish override message: ledstate ");
-      Serial_println(msg);
-      client.publish(override_topic, msg);
-      interrupted = false;
+      if(client.connected()){
+        snprintf (msg, 75, "%ld", ledstate ? 0 : 1);
+        Serial_print("Publish override message: ledstate ");
+        Serial_println(msg);
+        client.publish(override_topic, msg);
+        interrupted = false;
+      }
     }
 }
 

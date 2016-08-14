@@ -1,7 +1,8 @@
 #include <Arduino.h>
 #include <Esp.h>
 #include <ESP8266WiFi.h>
-#include <PubSubClient.h>
+#include <WiFiUdp.h>
+#include <coap.h>
 
 #include "debug.h"
 
@@ -10,27 +11,60 @@
 
 const char *ssid = "OnePlus2";
 const char *password = "global@123";
-const char *mqtt_server = "192.168.43.162";
-const char *control_topic = "esp8266/control/led";
-const char *status_topic = "esp8266/status/led";
-const char *override_topic = "esp8266/override/led";
-
-WiFiClient espClient;
-PubSubClient client(espClient);
-
-long lastMsg = 0;
-char msg[50];
-volatile bool ledstate = true; //Active low relay switch
-volatile bool interrupted = false;
 
 void setup_wifi(void);
-void callback(char *topic, byte *payload, unsigned int length);
-void reconnect(void);
-void handle_switching(void);
+void callback_response(CoapPacket &packet, IPAddress ip, int port);
+void callback_wellknown_core(CoapPacket &packet, IPAddress ip, int port);
+void callback_light(CoapPacket &packet, IPAddress ip, int port);
 void handle_toggle_switch_interrupt(void);
 
 void setup(void);
 void loop(void);
+
+
+WiFiUDP udp;
+Coap coap(udp);
+
+volatile bool ledstate = true; //Active low relay switch
+volatile bool interrupted = false;
+
+void callback_wellknown_core(CoapPacket &packet, IPAddress ip, int port){
+  Serial_println("[Coap .well-known/core]");
+
+  const char *content = "</led>;ep=\"led\"";
+  coap.sendResponse(ip, port, packet.messageid, (char *)content, strlen(content),
+                      COAP_CONTENT, COAP_APPLICATION_LINK_FORMAT, NULL, 0);
+}
+
+void callback_response(CoapPacket &packet, IPAddress ip, int port) {
+  Serial_println("[Coap Response got]");
+
+  char p[packet.payloadlen + 1];
+  memcpy(p, packet.payload, packet.payloadlen);
+  p[packet.payloadlen] = '\0';
+
+  Serial_println(p);
+}
+
+void callback_light(CoapPacket &packet, IPAddress ip, int port){
+  Serial_print("Coap [/led] ");
+
+  // send response
+  char p[packet.payloadlen + 1];
+  memcpy(p, packet.payload, packet.payloadlen);
+  p[packet.payloadlen] = '\0';
+
+  String message(p);
+
+  if (message.equals("0"))
+    ledstate = true;
+  else if(message.equals("1"))
+    ledstate = false;
+
+  Serial_println(ledstate ? "OFF" : "ON");
+  digitalWrite(LED_PIN, ledstate);
+  coap.sendResponse(ip, port, packet.messageid, (char *)(ledstate ? "0" : "1"));
+}
 
 void setup_wifi() {
   delay(10);
@@ -53,63 +87,11 @@ void setup_wifi() {
   Serial_println(WiFi.localIP());
 }
 
-void callback(char *topic, byte *payload, unsigned int length) {
-  Serial_print("Message arrived [");
-  Serial_print(topic);
-  Serial_print("] ");
-  for (int i = 0; i < length; i++) {
-    Serial_print((char)payload[i]);
-  }
-  Serial_println();
-
-  if(strcmp(control_topic,topic)==0){
-    if ((char)payload[0] == '1') {
-      ledstate = false;
-      digitalWrite(LED_PIN, LOW);
-    } else {
-      ledstate = true;
-      digitalWrite(LED_PIN, HIGH);
-    }
-  }
-}
-
-void reconnect() {
-  while (!client.connected()) {
-    Serial_print("Attempting MQTT connection...");
-    if (client.connect("ESP8266Client")) {
-      Serial_println("connected");
-      client.publish(status_topic, "system ready");
-      client.subscribe(control_topic);
-    } else {
-      handle_switching();
-      Serial_print("failed, rc=");
-      Serial_print(client.state());
-      Serial_println(" try again in 5 seconds");
-      for(int msec=0; msec < 5000; msec+= 500){
-        delay(500);
-        handle_switching();
-      }
-    }
-  }
-}
-
 //Interrupt function
 void handle_toggle_switch_interrupt(void){
   ledstate = !ledstate;
   interrupted = true;
-}
-
-void handle_switching(void){
-    if(interrupted){
-      digitalWrite(LED_PIN, ledstate);
-      if(client.connected()){
-        snprintf (msg, 75, "%ld", ledstate ? 0 : 1);
-        Serial_print("Publish override message: ledstate ");
-        Serial_println(msg);
-        client.publish(override_topic, msg);
-        interrupted = false;
-      }
-    }
+  digitalWrite(LED_PIN, ledstate);
 }
 
 void setup() {
@@ -118,27 +100,14 @@ void setup() {
   pinMode(LED_PIN, OUTPUT);
   pinMode(SW_PIN, INPUT_PULLUP);
   attachInterrupt(digitalPinToInterrupt(SW_PIN), handle_toggle_switch_interrupt, FALLING);
-  client.setServer(mqtt_server, 1883);
-  client.setCallback(callback);
+
+  coap.server(callback_wellknown_core, ".well-known/core");
+  coap.server(callback_light, "led");
+  coap.response(callback_response);
+  coap.start();
 }
 
 void loop() {
-  handle_switching();
-
-  if (!client.connected()) {
-    reconnect();
-  }
-
-  client.loop();
-
-  long now = millis();
-
-  if (now - lastMsg > 5000) {
-    lastMsg = now;
-    snprintf (msg, 75, "%ld", ledstate ? 0 : 1);
-    Serial_print("Publish status message: ledstate ");
-    Serial_println(msg);
-    client.publish(status_topic, msg);
-  }
+  coap.loop();
   delay(90);
 }
